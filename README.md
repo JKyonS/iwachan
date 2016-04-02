@@ -12,10 +12,12 @@ Make the script executable and place it in either your $HOME/bin or $PATH.
 ### Uses:
 	
 If the script is in your current directory:
+
 	- ./iwachan URL
 	- ./iwachan -d URL
 	- ./iwachan -h
 If the script is in your $PATH:
+
 	- iwachan URL
 	- iwachan -d URL
 	- iwachan -h
