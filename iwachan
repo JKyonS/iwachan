@@ -15,10 +15,11 @@
 url_f="$2"		# Catches the url when you use a  flag
 url_nf="$1"		# Catches the url when you do NOT use a flag
 tmp_dir="/tmp/iwachan"	# directory where all the temporary files are put
-version="Iwachan-v1.00"
+version="Iwachan-v1.04"
 user_agent="Mozilla/5.0 (X11; Linux x86_64; rv:41.0) Gecko/20100101 Firefox/41.0 Iceweasel/41.0.2"	# change at your discretion
 downloads=""		# directory where the script will download the videos ex.(/home/USER/downloads/)
 tube_ops=""		# variable for youtube-dl options, currently not needed
+tmp_node="00000"	# temporary directory node, will assign the video node number to the temporary script files directories ex. /tmp/iwachan-XXXXXX
 
 # Colors
 c_00="\033[0m"		# Default color
@@ -27,22 +28,43 @@ c_02="\033[32m"		# Green
 c_03="\033[33m"		# Yellow
 
 # General funtions
-# Should be pretty obvious what everthing does.
+# Should be pretty obvious what everything does.
 
 create_files(){
-	mkdir $tmp_dir
+	if [[ "$url_nf" =~ "iwara.tv" ]]; then
+		tmp_node=`sed -n 's|.*\(/node/\)\([0-9]*\).*|\2|p' <<< $url_nf`
+		if [ -z $tmp_node ]; then
+			tmp_node=`sed -n 's|.*\(/videos/\)\([a-zA-Z0-9]*\).*|\2|p' <<< $url_nf`
+			if [ -z $tmp_node ]; then
+				echo -e "${c_03}Warning! No valid node!${c_00}"
+			fi
+		else
+			:
+		fi
+	elif [[ "$url_nf" != "iwara.tv" ]]; then
+		tmp_node=`sed -n 's|.*\(/node/\)\([0-9]*\).*|\2|p' <<< $url_f`
+		if [ -z $tmp_node ]; then
+			tmp_node=`sed -n 's|.*\(/videos/\)\([a-zA-Z0-9]*\).*|\2|p' <<< $url_f`
+			if [ -z $tmp_node ]; then
+				echo -e "${c_03}Warning! No valid node!${c_00}"
+			fi
+		else
+			:
+		fi
+	fi
+	mkdir $tmp_dir-$tmp_node
 	touch \
-		$tmp_dir/multi.txt \
-		$tmp_dir/mainpage.txt \
-		$tmp_dir/xml_file.txt \
-		$tmp_dir/iwalog_00 \
-		$tmp_dir/iwalog_01
+		$tmp_dir-$tmp_node/multi.txt \
+		$tmp_dir-$tmp_node/mainpage.txt \
+		$tmp_dir-$tmp_node/xml_file.txt \
+		$tmp_dir-$tmp_node/iwalog_00 \
+		$tmp_dir-$tmp_node/iwalog_01
 }
 
-clean_nask(){		# delete all temporary files without asking
-	if [ -d $tmp_dir ]; then
+clean_nask(){		# delete temporary files without asking by using directory node
+	if [ -d $tmp_dir-$tmp_node ]; then
 		echo -n "Cleaning files... "
-		rm -R $tmp_dir
+		rm -R $tmp_dir-$tmp_node
 		echo -e "${c_02}done.${c_00}"
 		exit 0
 	else
@@ -51,75 +73,89 @@ clean_nask(){		# delete all temporary files without asking
 	fi
 }
 
-clean_ask(){		# ask to delete files, alternate ask/nask to debug script output
-	read -p "Delete script files?(y/n)" del
+clean_ask(){		# delete ALL temporary script files, regardless of node
+	echo -e "${c_01}WARNING! This will remove ALL temporary script files!${c_00}"
+	read -p "Continue?(y/n) " del
 	if [ $del == y ]; then
-		clean_nask
+		rm -R $tmp_dir*
+		echo -e "${c_02}Done.${c_00}"
 	else
-		echo -e "${c_03}WARNING! Leaving temporary files can mess with the script!${c_00}"
-		echo -e "${c_01}Not cleaning files!${c_00}"
-		exit 0
+		echo -e "${c_03}Not cleaning files!${c_00}"
 	fi
 }
 
 get_html(){		# download html page
 	echo -n "Downloading page... "
 	if [[ "$url_nf" =~ "iwara.tv" ]]; then
-		echo "MAIN_URL:$url_nf" >> $tmp_dir/multi.txt
-		wget -nv "$url_nf" -o $tmp_dir/iwalog_00 -O $tmp_dir/mainpage.txt
+		echo "MAIN_URL:$url_nf" >> $tmp_dir-$tmp_node/multi.txt
+		wget -nv "$url_nf" -o $tmp_dir-$tmp_node/iwalog_00 -O $tmp_dir-$tmp_node/mainpage.txt
 		echo -e "${c_02}done.${c_00}"
 	elif [[ "$url_nf" != "iwara.tv" ]]; then
-		echo "MAIN_URL:$url_f" >> $tmp_dir/multi.txt
-		wget -nv "$url_f" -o $tmp_dir/iwalog_00 -O $tmp_dir/mainpage.txt
+		echo "MAIN_URL:$url_f" >> $tmp_dir-$tmp_node/multi.txt
+		wget -nv "$url_f" -o $tmp_dir-$tmp_node/iwalog_00 -O $tmp_dir-$tmp_node/mainpage.txt
 		echo -e "${c_02}done.${c_00}"
 	fi
 }
 
 get_link(){		# get page node/identifier and the real video link
-	main_node=`grep 'MAIN_URL:' $tmp_dir/multi.txt | sed -n 's|.*\(/node/\)\([0-9]*\).*|\2|p'`
-	video_link=`sed -n 's|.*\(<source src="\)\([^"]*\).*|\2|p' $tmp_dir/mainpage.txt`
-	echo "MAIN_NODE:$main_node" >> $tmp_dir/multi.txt
-	echo "VIDEO_URL:$video_link" >> $tmp_dir/multi.txt
+	main_node=`grep 'MAIN_URL:' $tmp_dir-$tmp_node/multi.txt | sed -n 's|.*\(/node/\)\([0-9]*\).*|\2|p'`
+	video_link=`sed -n 's|.*\(<source src="\)\([^"]*\).*|\2|p' $tmp_dir-$tmp_node/mainpage.txt`
+	if [ -z $main_node ]; then
+		main_node=`grep 'shortlink' $tmp_dir-$tmp_node/mainpage.txt | sed -n 's|.*\(/node/\)\([0-9]*\).*|\2|p'`
+		if [ -z $main_node ]; then
+			echo -e "${c_03}Warning! Variable MAIN_NODE not set!${c_00}"
+		fi
+	else
+		:
+	fi
+	echo "MAIN_NODE:$main_node" >> $tmp_dir-$tmp_node/multi.txt
+	echo "VIDEO_URL:$video_link" >> $tmp_dir-$tmp_node/multi.txt
 }
 
 spider(){		# check if video is available with wget spider, throw an error if video is unreachable
-	spider_link=`grep "VIDEO_URL:" $tmp_dir/multi.txt | sed -n "s|\(VIDEO_URL:\)\(.*\)|\2|p"`
+	spider_link=`grep "VIDEO_URL:" $tmp_dir-$tmp_node/multi.txt | sed -n "s|\(VIDEO_URL:\)\(.*\)|\2|p"`
 	if [[ "$spider_link" =~ "iwara.tv" ]]; then
 		echo -n "Checking video availability... "
-		wget -nv --spider "$spider_link" -o $tmp_dir/iwalog_01
-		grep -i ' 200 OK' $tmp_dir/iwalog_01 > /dev/null
+		wget -nv --spider "$spider_link" -o $tmp_dir-$tmp_node/iwalog_01
+		grep -i ' 200 OK' $tmp_dir-$tmp_node/iwalog_01 > /dev/null
 		if [ $? == 0 ];then
-			echo "SPIDER:200 OK" >> $tmp_dir/multi.txt
+			echo "SPIDER:200 OK" >> $tmp_dir-$tmp_node/multi.txt
 			echo -e "${c_02}done.${c_00}"
 		else
-			echo "SPIDER:ERROR" >> $tmp_dir/multi.txt
+			echo "SPIDER:ERROR" >> $tmp_dir-$tmp_node/multi.txt
 			echo -e "${c_01}ERROR: No valid URL or video unavailable right now.${c_00}"
 		fi
 	fi
 }
 
 play(){			# play video
-	play_link=`grep "VIDEO_URL:" $tmp_dir/multi.txt | sed -n "s|.*\(VIDEO_URL:\)\(.*\)|\2|p"`
-	play_title=`sed -n 's|.*\(<h1 class="title">\)\([^<]*\).*|\2|p' $tmp_dir/mainpage.txt`
-	mpv --media-title="$play_title" "$play_link"
+	play_link=`grep "VIDEO_URL:" $tmp_dir-$tmp_node/multi.txt | sed -n "s|.*\(VIDEO_URL:\)\(.*\)|\2|p"`
+	play_title=`sed -n 's|.*\(<h1 class="title">\)\([^<]*\).*|\2|p' $tmp_dir-$tmp_node/mainpage.txt`
+	mpv --really-quiet --media-title="$play_title" "$play_link"
 }
 
 # Downloader
 
 download(){		# download video in format: /CUSTOM/PATH/Iwara - TITLE.NODE.EXTENSION Note: custom_path is only applied if you supplied one in the General Variables
-	down_title=`sed -n 's|.*\(<h1 class="title">\)\([^<]*\).*|\2|p' $tmp_dir/mainpage.txt`
-	down_link=`grep "VIDEO_URL:" $tmp_dir/multi.txt | sed -n "s|.*\(VIDEO_URL:\)\(.*\)|\2|p"`
-	down_node=`grep "MAIN_NODE:" $tmp_dir/multi.txt | sed -n "s|.*\(MAIN_NODE:\)\(.*\)|\2|p"`
-	down_ext=`grep "VIDEO_URL:" $tmp_dir/multi.txt | sed -n "s|.*\(file=[0-9\%A-Za-z]*\)\([^&]*\).*|\2|p"`
+	down_title=`sed -n 's|.*\(<h1 class="title">\)\([^<]*\).*|\2|p' $tmp_dir-$tmp_node/mainpage.txt`
+	down_link=`grep "VIDEO_URL:" $tmp_dir-$tmp_node/multi.txt | sed -n "s|.*\(VIDEO_URL:\)\(.*\)|\2|p"`
+	down_node=`grep "MAIN_NODE:" $tmp_dir-$tmp_node/multi.txt | sed -n "s|.*\(MAIN_NODE:\)\(.*\)|\2|p"`
+	down_ext=`grep "VIDEO_URL:" $tmp_dir-$tmp_node/multi.txt | sed -n "s|.*\(file=[0-9\%A-Za-z_-]*\)\([^&]*\).*|\2|p"`
+	echo -e "${c_02}Video Node: $down_node${c_00}"
 	echo -e "${c_03}Iwachan doesn't want to download ecchi videos for you, senpai.${c_00}"
 	sleep 1
 	wget -q --show-progress -U "$user_agent" -nc "$down_link" -O "$downloads"Iwara\ -\ "$down_title".$down_node"$down_ext"
 }
 
-info(){			# display video some video information
-	info_title=`sed -n 's|.*\(<h1 class="title">\)\([^<]*\).*|\2|p' $tmp_dir/mainpage.txt`
-	info_desc=`sed -n 's|.*\(<div class="field-item even"><p>\)\([^<]*\).*|\2|p' $tmp_dir/mainpage.txt`
-	info_thumb=`sed -n 's|.*\(poster="\)\([^"]*\).*|\2|p' $tmp_dir/mainpage.txt`
+# Get info of a video, info_get is currently not being used
+info_get(){
+	cat $tmp_dir-$tmp_node/mainpage.txt | tr "\n" "|" | grep -o '<p>.*</p>' | sed 's/\(<p>\|<\/p>\)//g' | sed 's/|/\n/g' > $tmp_dir-$tmp_node/MAINPAGE
+}
+
+info_display(){			# some video information
+	info_title=`sed -n 's|.*\(<h1 class="title">\)\([^<]*\).*|\2|p' $tmp_dir-$tmp_node/mainpage.txt`
+	info_desc=`sed -n 's|.*\(<div class="field-item even"><p>\)\([^<]*\).*|\2|p' $tmp_dir-$tmp_node/mainpage.txt`
+	info_thumb=`sed -n 's|.*\(poster="\)\([^"]*\).*|\2|p' $tmp_dir-$tmp_node/mainpage.txt`
 	clear
 	echo -e "${c_03}Iwachan is not a botnet.${c_00}"
 	echo
@@ -142,7 +178,7 @@ info(){			# display video some video information
 halp(){			# No idea what this does
 	echo "Use one of the following:"
 	echo
-	echo "-c	Clean temporary files the script created"
+	echo "-c	Clean ALL temporary files the script created"
 	echo "-d	Download the video instead of streaming it"
 	echo "-h	Show this help screen"
 	echo "-i	Get information of a video, YMMV"
@@ -154,6 +190,7 @@ halp(){			# No idea what this does
 
 errors(){		# I'll try to finish it, I promise.
 	echo -e "${c_01}Kaji! Kaji! Tasukete yo!!${c_00}"
+	sleep 1s
 	echo -e "${c_02}Work in progress (^q^)${c_00}"
 }
 
@@ -172,7 +209,7 @@ else
 	while getopts ":cd:hi:n:t:vz" flag; do
 		case $flag in
 			c)
-				clean_nask
+				clean_ask
 				;;
 			d)
 				create_files
